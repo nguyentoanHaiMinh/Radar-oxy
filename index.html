@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>TRUNG TÂM KIỂM SOÁT RADAR</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        /* PHẦN CSS - YẾU TỐ ART (THẨM MỸ) */
+        body {
+            background-color: #050505; /* Đen sâu thẳm */
+            color: #00ff41; /* Xanh lá Neon */
+            font-family: 'Courier New', Courier, monospace; /* Phông chữ Hacker */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            text-shadow: 0 0 10px #00ff41, 0 0 20px #00ff41;
+            margin-bottom: 30px;
+        }
+
+        /* Khung điều khiển chính */
+        .control-panel {
+            border: 2px solid #00ff41;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.2), inset 0 0 20px rgba(0, 255, 65, 0.1);
+            margin-bottom: 20px;
+            width: 90%;
+            max-width: 650px;
+        }
+
+        /* Canvas và Vùng Hiển thị */
+        #radarDisplay {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+            justify-content: center;
+            width: 100%;
+            max-width: 1280px;
+        }
+
+        #radarCanvas {
+            display: block;
+            border: 1px solid #00ff41;
+            box-shadow: 0 0 15px #00ff41, inset 0 0 15px #00ff41;
+            border-radius: 5px;
+            background-color: #0a0a0a;
+            /* Kích thước được set trong JS: 600x600 */
+        }
+
+        .data-panel {
+            width: 350px;
+            padding: 20px;
+            border: 1px dashed #00ff41;
+            border-radius: 8px;
+        }
+
+        .data-item {
+            margin-bottom: 10px;
+            padding: 5px 0;
+            border-bottom: 1px dotted #1a4f1e;
+        }
+
+        .data-item strong {
+            color: #ffffff;
+            font-size: 1.1em;
+        }
+
+        input[type="number"] {
+            background-color: #1a1a1a;
+            border: 1px solid #00ff41;
+            color: #00ff41;
+            padding: 5px;
+            width: 60px;
+            margin-left: 10px;
+            text-align: center;
+        }
+
+        /* Trạng thái */
+        #status {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            text-shadow: 0 0 5px currentColor;
+        }
+
+        .danger {
+            color: #ff0000;
+            background-color: rgba(255, 0, 0, 0.1);
+            border: 1px solid #ff0000;
+            animation: pulse-danger 1s infinite alternate;
+        }
+
+        .safe {
+            color: #00ff41;
+            background-color: rgba(0, 255, 65, 0.1);
+            border: 1px solid #00ff41;
+        }
+
+        @keyframes pulse-danger {
+            from {
+                box-shadow: 0 0 10px #ff0000;
+            }
+            to {
+                box-shadow: 0 0 30px #ff0000;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Yêu cầu 1: Hiện tên Trung tâm kiểm soát Radar -->
+    <h1>TRUNG TÂM KIỂM SOÁT RADAR</h1>
+    
+    <div class="control-panel">
+        <p><strong>Cài Đặt Vùng Phủ Sóng (Đường Tròn):</strong></p>
+        <div>
+            Tâm A(a, b):
+            a = <input type="number" id="input_a" value="0" step="1" oninput="updateData()">
+            b = <input type="number" id="input_b" value="0" step="1" oninput="updateData()">
+            <br>
+            Bán kính R = <input type="number" id="input_R" value="5" min="1" max="10" step="1" oninput="updateData()">
+        </div>
+        
+        <p style="margin-top: 15px;"><strong>Vị Trí Mục Tiêu M(x₀, y₀):</strong></p>
+        <div>
+            x₀ = <input type="number" id="input_x0" value="7" step="1" oninput="updateData()">
+            y₀ = <input type="number" id="input_y0" value="3" step="1" oninput="updateData()">
+        </div>
+        
+        <!-- Yêu cầu 2: Hiện cảnh báo mục tiêu trong vùng kiểm soát -->
+        <div id="status">CHỜ DỮ LIỆU...</div>
+    </div>
+    
+    <div id="radarDisplay">
+        <canvas id="radarCanvas"></canvas>
+        <div class="data-panel">
+            <h2>HỆ THỐNG PHÂN TÍCH</h2>
+            <div class="data-item">Tâm A: <strong id="output_A">...</strong></div>
+            <div class="data-item">Bán kính R: <strong id="output_R">...</strong></div>
+            <div class="data-item">Mục tiêu M: <strong id="output_M">...</strong></div>
+            <div class="data-item">Khoảng cách IM: <strong id="output_IM">...</strong></div>
+            <div class="data-item">Trạng thái so sánh (IM vs R): <strong id="output_compare">...</strong></div>
+            
+            <p style="margin-top: 20px; font-size: 0.9em;">
+                <span style="color: #ff0000;">🔴 Nguy hiểm (IM &lt; R): Mục tiêu đã vào vùng.</span><br>
+                <span style="color: #ffff00;">🟡 An toàn (IM &gt; R): Mục tiêu ngoài vùng.</span>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // --- CẤU HÌNH VÀ BIẾN TOÀN CỤC ---
+        const canvas = document.getElementById('radarCanvas');
+        const ctx = canvas.getContext('2d');
+        const CANVAS_SIZE = 600; // Kích thước cố định cho Canvas (600x600)
+        canvas.width = CANVAS_SIZE;
+        canvas.height = CANVAS_SIZE;
+
+        // KHAI BÁO CÁC BIẾN CHÍNH (Sử dụng 'var' để tránh lỗi khai báo lại)
+        var a = 0, b = 0, R = 5; // Thông số Đường Tròn
+        var x0 = 7, y0 = 3; // Thông số Điểm M
+        var IM = 0; // Khoảng cách
+        
+        // Cấu hình âm thanh (Tone.js)
+        const synth = new Tone.Oscillator(440, "sine").toDestination();
+        var isPlaying = false; // Trạng thái âm thanh
+
+        // Các biến hỗ trợ vẽ
+        var drawA_x = 0;
+        var drawA_y = 0;
+        var drawR = 0;
+        
+        // Tốc độ và góc quét (Vệt sáng)
+        var sweepAngle = 0;
+        const SWEEP_SPEED = 0.03; // Tốc độ quét (Radian/frame)
+
+        // Tỉ lệ scale (1 đơn vị trên mặt phẳng toán học = 30px trên canvas)
+        const scale = 30;
+
+        // --- HÀM XỬ LÝ ÂM THANH ---
+
+        // Hàm phát cảnh báo (beep)
+        function startWarningBeep() {
+            if (!isPlaying) {
+                // Tần số cao và lặp lại
+                synth.frequency.value = 880; 
+                synth.start();
+                isPlaying = true;
+                // Thêm một hiệu ứng ngắt/ngân nhẹ để tạo cảm giác "beep" liên tục
+                if (!window.beepInterval) {
+                     window.beepInterval = setInterval(() => {
+                        if (isPlaying) {
+                           synth.volume.value = -10; // Giảm âm lượng 
+                           setTimeout(() => {
+                               synth.volume.value = 0; // Tăng lại
+                           }, 100);
+                        }
+                    }, 500); // Lặp lại mỗi 0.5s
+                }
+            }
+        }
+
+        // Hàm dừng cảnh báo
+        function stopWarningBeep() {
+            if (isPlaying) {
+                synth.stop();
+                isPlaying = false;
+                clearInterval(window.beepInterval);
+                window.beepInterval = null;
+            }
+        }
+
+        // --- HÀM TÍNH TOÁN (LOGIC TOÁN HỌC) ---
+
+        function calculateDistance(a, b, x0, y0) {
+            // IM = sqrt((x0 - a)^2 + (y0 - b)^2)
+            return Math.sqrt(Math.pow(x0 - a, 2) + Math.pow(y0 - b, 2));
+        }
+
+        // --- HÀM VẼ (VISUALIZATION) ---
+
+        // Hàm vẽ toàn bộ cảnh (chạy trong vòng lặp animation)
+        function drawScene() {
+            const center_x = canvas.width / 2;
+            const center_y = canvas.height / 2;
+
+            // 1. Xóa canvas
+            ctx.fillStyle = '#050505'; // Màu nền đen
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 2. Tính toán lại tọa độ vẽ (Canvas Coordinates)
+            // Lưu ý: Tọa độ y trên canvas ngược với tọa độ y toán học
+            drawA_x = center_x + a * scale;
+            drawA_y = center_y - b * scale;
+            drawR = R * scale;
+            
+            var drawM_x = center_x + x0 * scale;
+            var drawM_y = center_y - y0 * scale;
+
+            // 3. Vẽ Lưới tọa độ (Grid) - KHẮC PHỤC LỆCH TRỤC
+            const gridColor = '#1a3a1f'; // Xanh lá đậm, mờ
+            ctx.strokeStyle = gridColor;
+            ctx.lineWidth = 0.5;
+
+            // Vẽ lưới và nhãn (từ -10 đến 10)
+            ctx.fillStyle = '#00ff41';
+            ctx.font = '12px Courier New';
+            
+            for (let i = -10; i <= 10; i++) {
+                // Đường lưới ngang (Y=i)
+                const y_pos = center_y - i * scale;
+                ctx.beginPath();
+                ctx.moveTo(0, y_pos);
+                ctx.lineTo(canvas.width, y_pos);
+                ctx.stroke();
+                
+                // Đường lưới dọc (X=i)
+                const x_pos = center_x + i * scale;
+                ctx.beginPath();
+                ctx.moveTo(x_pos, 0);
+                ctx.lineTo(x_pos, canvas.height);
+                ctx.stroke();
+
+                // Nhãn số (trừ 0)
+                if (i !== 0) {
+                    // Nhãn X
+                    ctx.fillText(i, x_pos - 5, center_y + 15);
+                    // Nhãn Y
+                    ctx.fillText(i, center_x + 5, y_pos + 5);
+                }
+            }
+
+            // 4. Vẽ TRỤC TỌA ĐỘ CHÍNH (X=0 và Y=0)
+            ctx.strokeStyle = '#00ff41'; // Xanh lá Neon
+            ctx.lineWidth = 1;
+            
+            // Trục X (Y=0)
+            ctx.beginPath();
+            ctx.moveTo(0, center_y);
+            ctx.lineTo(canvas.width, center_y);
+            ctx.stroke();
+            // Trục Y (X=0)
+            ctx.beginPath();
+            ctx.moveTo(center_x, 0);
+            ctx.lineTo(center_x, canvas.height);
+            ctx.stroke();
+
+            // Vẽ gốc O(0,0) và nhãn trục
+            ctx.fillStyle = '#00ff41';
+            ctx.beginPath();
+            ctx.arc(center_x, center_y, 4, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.fillText('X', canvas.width - 20, center_y - 10);
+            ctx.fillText('Y', center_x + 10, 20);
+            ctx.fillText('O', center_x + 10, center_y + 15);
+
+            // 5. Vẽ Đường tròn (Vùng phủ sóng Radar)
+            
+            // Yêu cầu 3: Tô màu vùng phủ sóng rõ ràng hơn
+            // Đặt độ trong suốt cao hơn (0.15) để vùng phủ sóng rõ ràng nhưng vẫn không che khuất lưới.
+            ctx.fillStyle = 'rgba(0, 255, 65, 0.15)'; 
+            ctx.beginPath();
+            ctx.arc(drawA_x, drawA_y, drawR, 0, 2 * Math.PI);
+            ctx.fill(); // Tô màu bên trong (Vùng kiểm soát)
+
+            ctx.strokeStyle = '#00ff41'; // Màu viền
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(drawA_x, drawA_y, drawR, 0, 2 * Math.PI);
+            ctx.stroke(); // Vẽ viền
+            
+            // Vẽ Tâm A
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(drawA_x, drawA_y, 6, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.fillStyle = '#050505';
+            ctx.beginPath();
+            ctx.arc(drawA_x, drawA_y, 3, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // Nhãn Tâm A
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(`A(${a}, ${b})`, drawA_x + 10, drawA_y - 10);
+
+
+            // --- VẼ VỆT SÁNG QUÉT RADAR ---
+            const sweepColor = 'rgba(0, 255, 65, 0.4)'; // Màu xanh lá trong suốt
+            const sweepEndAngle = sweepAngle;
+            const sweepStartAngle = sweepEndAngle - Math.PI / 6; // Góc quét 30 độ (Math.PI / 6)
+
+            ctx.save();
+            ctx.globalAlpha = 0.8; 
+            ctx.fillStyle = sweepColor;
+
+            // Vòng lặp này vẽ hình quạt quét từ Tâm A
+            ctx.beginPath();
+            ctx.moveTo(drawA_x, drawA_y); 
+            // Góc canvas đo theo chiều kim đồng hồ, nên cần đảo ngược dấu góc.
+            // Bán kính lớn hơn R một chút để quét ra ngoài vòng tròn
+            const sweepRadius = drawR + 10; 
+            ctx.arc(drawA_x, drawA_y, sweepRadius, -sweepStartAngle, -sweepEndAngle, true); 
+            ctx.lineTo(drawA_x, drawA_y); 
+
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+            // --- KẾT THÚC VẼ VỆT SÁNG ---
+
+
+            // 6. Xử lý Vị trí Mục tiêu M và Hiển thị Trạng thái
+            const statusEl = document.getElementById('status');
+            var colorPoint = "";
+            
+            // Xử lý logic so sánh
+            if (IM < R) {
+                // TRƯỜNG HỢP 1: NẰM TRONG (NGUY HIỂM)
+                // Cảnh báo mục tiêu trong vùng kiểm soát
+                statusEl.innerHTML = "🔴 CẢNH BÁO: MỤC TIÊU ĐÃ VÀO VÙNG KIỂM SOÁT"; 
+                statusEl.className = "danger";
+                colorPoint = "#ff0000"; // Đỏ
+                
+                // 🔊 PHÁT ÂM THANH CẢNH BÁO 🔊
+                startWarningBeep();
+                
+                // Minh họa khoảng cách (Đường đứt nét)
+                ctx.beginPath();
+                ctx.strokeStyle = "red";
+                ctx.setLineDash([5, 5]); 
+                ctx.moveTo(drawA_x, drawA_y);
+                ctx.lineTo(drawM_x, drawM_y);
+                ctx.stroke();
+                ctx.setLineDash([]); 
+            } else {
+                // TRƯỜNG HỢP 2: NẰM NGOÀI (AN TOÀN)
+                statusEl.innerHTML = "✅ AN TOÀN: MỤC TIÊU NGOÀI VÙNG KIỂM SOÁT";
+                statusEl.className = "safe"; 
+                colorPoint = "#ffff00"; // Vàng
+                
+                // 🔇 DỪNG ÂM THANH NẾU ĐANG CHẠY 🔇
+                stopWarningBeep();
+            }
+
+            // 7. Vẽ Điểm M
+            ctx.fillStyle = colorPoint;
+            ctx.beginPath();
+            ctx.arc(drawM_x, drawM_y, 5, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Hiệu ứng "ping" sóng tỏa ra từ điểm M
+            ctx.beginPath();
+            ctx.strokeStyle = colorPoint;
+            ctx.lineWidth = 1;
+            ctx.arc(drawM_x, drawM_y, 10, 0, 2 * Math.PI);
+            ctx.stroke();
+
+            ctx.fillStyle = "white";
+            ctx.fillText(`M(${x0}, ${y0})`, drawM_x + 10, drawM_y - 10);
+        }
+
+        // --- VÒNG LẶP ANIMATION CHÍNH ---
+
+        function animateRadar() {
+            // 1. Vẽ toàn bộ cảnh (bao gồm điểm M, radar, grid, v.v.)
+            drawScene();
+
+            // 2. Cập nhật góc quét cho khung hình tiếp theo
+            sweepAngle += SWEEP_SPEED;
+            if (sweepAngle > 2 * Math.PI) {
+                sweepAngle -= 2 * Math.PI;
+            }
+
+            // 3. Yêu cầu vẽ khung hình tiếp theo
+            requestAnimationFrame(animateRadar);
+        }
+
+        // --- HÀM XỬ LÝ SỰ KIỆN (INPUT) ---
+        
+        function updateData() {
+            // Đọc dữ liệu từ input và cập nhật biến toàn cục
+            a = parseFloat(document.getElementById('input_a').value) || 0;
+            b = parseFloat(document.getElementById('input_b').value) || 0;
+            R = parseFloat(document.getElementById('input_R').value) || 5;
+            x0 = parseFloat(document.getElementById('input_x0').value) || 0;
+            y0 = parseFloat(document.getElementById('input_y0').value) || 0;
+
+            // Kiểm tra ràng buộc R
+            if (R <= 0) {
+                R = 1;
+                document.getElementById('input_R').value = 1;
+            } else if (R > 10) {
+                 R = 10;
+                document.getElementById('input_R').value = 10;
+            }
+
+            // Tính toán khoảng cách
+            IM = calculateDistance(a, b, x0, y0);
+
+            // Cập nhật các output trong Data Panel
+            document.getElementById('output_A').textContent = `(${a}, ${b})`;
+            document.getElementById('output_R').textContent = R.toFixed(2);
+            document.getElementById('output_M').textContent = `(${x0}, ${y0})`;
+            document.getElementById('output_IM').textContent = IM.toFixed(2);
+            
+            var compareText = '';
+            if (IM < R) {
+                compareText = 'IM < R (Mục tiêu đã vào vùng)';
+            } else if (IM > R) {
+                compareText = 'IM > R (Mục tiêu ngoài vùng)';
+            } else {
+                compareText = 'IM = R (Mục tiêu nằm trên biên)';
+            }
+            document.getElementById('output_compare').textContent = compareText;
+
+            // Vòng lặp animation sẽ tự động gọi drawScene()
+        }
+
+        // --- KHỞI TẠO ---
+
+        // Khởi tạo trạng thái ban đầu
+        updateData(); 
+        
+        // Bắt đầu vòng lặp animation
+        animateRadar();
+
+    </script>
+</body>
+</html>
